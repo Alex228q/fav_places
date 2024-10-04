@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:location/location.dart';
 
 class LocationInput extends StatefulWidget {
@@ -9,12 +11,20 @@ class LocationInput extends StatefulWidget {
 }
 
 class _LocationInputState extends State<LocationInput> {
-  Location? _pickedLocation;
+  final MapController _mapController = MapController();
   var _isGettingLocation = false;
+  double? _lat;
+  double? _lng;
+  bool _isMapInitialized = false;
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
 
   void _getCurrentLocation() async {
     Location location = Location();
-
     bool serviceEnabled;
     PermissionStatus permissionGranted;
     LocationData locationData;
@@ -44,9 +54,11 @@ class _LocationInputState extends State<LocationInput> {
     setState(() {
       _isGettingLocation = false;
     });
-
-    print(locationData.latitude);
-    print(locationData.longitude);
+    _lat = locationData.latitude;
+    _lng = locationData.longitude;
+    if (_isMapInitialized) {
+      _mapController.move(LatLng(_lat!, _lng!), 16);
+    }
   }
 
   @override
@@ -61,6 +73,39 @@ class _LocationInputState extends State<LocationInput> {
 
     if (_isGettingLocation) {
       previewContent = const CircularProgressIndicator();
+    }
+    if (_lat != null && _lng != null) {
+      previewContent = FlutterMap(
+        mapController: _mapController,
+        options: MapOptions(
+          interactionOptions: const InteractionOptions(
+            flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+          ),
+          initialCenter: LatLng(_lat!, _lng!),
+          initialZoom: 16,
+          onMapReady: () {
+            _isMapInitialized = true;
+          },
+        ),
+        children: [
+          TileLayer(
+            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+            userAgentPackageName: 'dev.fleaflet.flutter_map.example',
+          ),
+          MarkerLayer(
+            markers: [
+              Marker(
+                point: LatLng(_lat!, _lng!),
+                child: const Icon(
+                  Icons.location_on,
+                  color: Colors.red,
+                  size: 30,
+                ),
+              )
+            ],
+          ),
+        ],
+      );
     }
     return Column(
       children: [
