@@ -1,17 +1,29 @@
+import 'dart:typed_data';
+import 'package:favorite_places/models/place.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
+import 'package:geocoding/geocoding.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:location/location.dart';
+import 'package:location/location.dart' as location_package;
+import 'package:screenshot/screenshot.dart';
 
 class LocationInput extends StatefulWidget {
-  const LocationInput({super.key});
+  const LocationInput(
+      {super.key, required this.onPickLocation, required this.onCaptureImage});
+
+  final void Function(PlaceLocation placeLocation) onPickLocation;
+  final void Function(Uint8List capturedImage) onCaptureImage;
 
   @override
   State<LocationInput> createState() => _LocationInputState();
 }
 
 class _LocationInputState extends State<LocationInput> {
+  PlaceLocation? placeLocation;
+  Uint8List? image;
   final MapController _mapController = MapController();
+  final ScreenshotController _screenshotController = ScreenshotController();
+
   var _isGettingLocation = false;
   double? _lat;
   double? _lng;
@@ -24,10 +36,10 @@ class _LocationInputState extends State<LocationInput> {
   }
 
   void _getCurrentLocation() async {
-    Location location = Location();
+    location_package.Location location = location_package.Location();
     bool serviceEnabled;
-    PermissionStatus permissionGranted;
-    LocationData locationData;
+    location_package.PermissionStatus permissionGranted;
+    location_package.LocationData locationData;
 
     serviceEnabled = await location.serviceEnabled();
     if (!serviceEnabled) {
@@ -38,9 +50,9 @@ class _LocationInputState extends State<LocationInput> {
     }
 
     permissionGranted = await location.hasPermission();
-    if (permissionGranted == PermissionStatus.denied) {
+    if (permissionGranted == location_package.PermissionStatus.denied) {
       permissionGranted = await location.requestPermission();
-      if (permissionGranted != PermissionStatus.granted) {
+      if (permissionGranted != location_package.PermissionStatus.granted) {
         return;
       }
     }
@@ -56,9 +68,25 @@ class _LocationInputState extends State<LocationInput> {
     });
     _lat = locationData.latitude;
     _lng = locationData.longitude;
+    List<Placemark> placemarks = await placemarkFromCoordinates(_lat!, _lng!);
+    placeLocation = PlaceLocation(
+      address: "${placemarks[0].street}${placemarks[0].name}",
+      latitude: _lat!,
+      longitude: _lng!,
+    );
     if (_isMapInitialized) {
       _mapController.move(LatLng(_lat!, _lng!), 16);
     }
+    widget.onPickLocation(placeLocation!);
+
+    Future.delayed(const Duration(milliseconds: 3000), () {
+      _saveCapturedImage();
+    });
+  }
+
+  void _saveCapturedImage() async {
+    image = await _screenshotController.capture();
+    widget.onCaptureImage(image!);
   }
 
   @override
@@ -75,36 +103,39 @@ class _LocationInputState extends State<LocationInput> {
       previewContent = const CircularProgressIndicator();
     }
     if (_lat != null && _lng != null) {
-      previewContent = FlutterMap(
-        mapController: _mapController,
-        options: MapOptions(
-          interactionOptions: const InteractionOptions(
-            flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+      previewContent = Screenshot(
+        controller: _screenshotController,
+        child: FlutterMap(
+          mapController: _mapController,
+          options: MapOptions(
+            interactionOptions: const InteractionOptions(
+              flags: InteractiveFlag.pinchZoom | InteractiveFlag.drag,
+            ),
+            initialCenter: LatLng(_lat!, _lng!),
+            initialZoom: 16,
+            onMapReady: () {
+              _isMapInitialized = true;
+            },
           ),
-          initialCenter: LatLng(_lat!, _lng!),
-          initialZoom: 16,
-          onMapReady: () {
-            _isMapInitialized = true;
-          },
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'dev.fleaflet.flutter_map.example',
+            ),
+            MarkerLayer(
+              markers: [
+                Marker(
+                  point: LatLng(_lat!, _lng!),
+                  child: const Icon(
+                    Icons.location_on,
+                    color: Colors.red,
+                    size: 30,
+                  ),
+                )
+              ],
+            ),
+          ],
         ),
-        children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'dev.fleaflet.flutter_map.example',
-          ),
-          MarkerLayer(
-            markers: [
-              Marker(
-                point: LatLng(_lat!, _lng!),
-                child: const Icon(
-                  Icons.location_on,
-                  color: Colors.red,
-                  size: 30,
-                ),
-              )
-            ],
-          ),
-        ],
       );
     }
     return Column(
